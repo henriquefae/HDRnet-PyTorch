@@ -58,7 +58,7 @@ class Train_Dataset(BaseDataset):
         self.params = params
 
     def __getitem__(self, idx):
-        fname = self.input_paths[idx].split('/')[-1]
+        fname = os.path.basename(self.input_paths[idx])
         if self.params['hdr']:
             input, output = self.load_img_hdr(fname)
         else:
@@ -87,7 +87,7 @@ class Eval_Dataset(BaseDataset):
         self.params = params
 
     def __getitem__(self, idx):
-        fname = self.input_paths[idx].split('/')[-1]
+        fname = os.path.basename(self.input_paths[idx])
         if self.params['hdr']:
             full, output = self.load_img_hdr(fname)
         else:
