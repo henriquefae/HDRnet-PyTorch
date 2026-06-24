@@ -5,17 +5,6 @@ This folder uses expert C target
 ## 1. Export to HDRNet format
 
 Expected folder for the downloaded images:
-E:/henrique/data/MITAboveFiveK
-└── data_split_manifest.json
-
-
-```powershell
-cd E:\henrique\HDRnet-PyTorch
-.\.venv\Scripts\activate
-python scripts\export_fivek_to_hdrnet.py
-```
-
-Expected folder:
 
 ```txt
 E:\henrique\data\hdrnet_fivek
@@ -44,7 +33,7 @@ All pairs exist and have matching sizes.
 Example train+val experiment:
 
 ```powershell
-python train.py --epochs=30 --train_data_dir=E:/henrique/data/hdrnet_fivek/train --eval_data_dir=E:/henrique/data/hdrnet_fivek/eval --output_res 256 256 --ckpt_interval 20 --summary_interval 5 --cuda
+python train.py --epochs=1000 --train_data_dir=E:/henrique/data/hdrnet_fivek/train --eval_data_dir=E:/henrique/data/hdrnet_fivek/eval --output_res 1024 1024 --ckpt_interval 1000 --summary_interval 100 --run_name experimento1 --cuda
 ```
 
 ## 4. Test inference
@@ -52,5 +41,5 @@ python train.py --epochs=30 --train_data_dir=E:/henrique/data/hdrnet_fivek/train
 Use your latest checkpoint, for example:
 
 ```powershell
-python test.py --ckpt_path=ckpts/epoch_XX_iter_XX.pt --test_img_path=E:/henrique/data/hdrnet_fivek/test/input/0000.jpg --cuda
+python test.py --ckpt_path=ckpts/ckpts_experiment2/epoch_99_iter_2500.pt --test_img_path=E:/henrique/data/hdrnet_fivek/test/input/0000.tif --cuda
 ```

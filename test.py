@@ -7,6 +7,7 @@ from PIL import Image
 from skimage import io, transform
 from torchvision.transforms.functional import resize
 from torchvision.utils import save_image
+from train import print_image_tensor_stats
 from utils import psnr, load_test_ckpt
 
 
@@ -31,13 +32,20 @@ def test(params, model):
             low = torch.div(low, 65535.0)
             full = torch.div(full, 65535.0)
         else:
-            low = torch.div(low, 255.0)
-            full = torch.div(full, 255.0)
+            # Expecting uint16 images, change to 255.0 if using uint8 images
+            low = torch.div(low, 65535.0)
+            full = torch.div(full, 65535.0)
 
         output = model(low, full)
 
         output = torch.clamp(output, 0, 1)
-        save_image(output, 'output.png')
+        save_image(output.clamp(0.0, 1.0), 'output.png')
+
+        print("\nNormalized tensor sanity check:")
+        print_image_tensor_stats("low normalized", low)
+        print_image_tensor_stats("full normalized", full)
+
+
         save_image(full, 'input.png')
 
 def load_img(params):

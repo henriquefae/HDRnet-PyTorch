@@ -1,29 +1,20 @@
 """
-export_fivek_to_hdrnet.py
+export_fivek_to_hdrnet_raw_resize_output.py
 
 Goal:
-- Read:
-    E:/henrique/data/MITAboveFiveK/data_split_manifest.json
-
-- Export FiveK image pairs in HDRNet-PyTorch folder format:
-
-    E:/henrique/data/hdrnet_fivek/
-    ├── train/input
-    ├── train/output
-    ├── eval/input
-    ├── eval/output
-    ├── test/input
-    └── test/output
-
-Main controls:
-1. Choose how many images to export with TRAIN, VAL, TEST.
-2. Choose whether to apply quality changes.
-3. Always resize target image to match input image size.
+- Export FiveK image pairs in HDRNet-PyTorch folder format.
+- Input remains original .dng.
+- Output remains .tif.
+- No preprocessing on input.
+- Output is resized only if its size does not match the input DNG size.
 """
 
 from pathlib import Path
 import json
 import shutil
+
+import rawpy
+import numpy as np
 from PIL import Image
 
 
@@ -40,128 +31,122 @@ OUT_ROOT = Path(r"E:/henrique/data/hdrnet_fivek")
 # Use None to export all available images from a split.
 # ============================================================
 
-TRAIN = 2
-VAL = 1
-TEST = 1
+TRAIN = 15
+VAL = 5
+TEST = 3
 
 
 # ============================================================
-# Quality / preprocessing control
+# Export options
 # ============================================================
 
-APPLY_QUALITY_CHANGES = False
-
-# Used only if APPLY_QUALITY_CHANGES = True
-IMG_SIZE_LONG_EDGE = 512
-
-# "jpg" is smaller but lossy.
-# "png" is larger but lossless.
-SAVE_FORMAT = "jpg"
-
-# Used only if SAVE_FORMAT = "jpg"
-JPEG_QUALITY = 95
+OVERWRITE_OUTPUT_FOLDER = True
+RENAME_WITH_INDEX = True
 
 
 # ============================================================
-# Image processing functions
+# Helpers
 # ============================================================
 
-def resize_long_edge(img: Image.Image, long_edge: int) -> Image.Image:
-    w, h = img.size
-    scale = long_edge / max(w, h)
-
-    new_w = int(round(w * scale))
-    new_h = int(round(h * scale))
-
-    return img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+def limit_items(items, n_images):
+    if n_images is None:
+        return items
+    return items[:n_images]
 
 
-def convert_dng_to_rgb(dng_path: Path) -> Image.Image:
+def get_hdrnet_postprocessed_dng_size(dng_path: Path):
     """
-    DNG must be converted to RGB before HDRNet can use it.
+    Return the exact image size that HDRNet-PyTorch will obtain
+    when loading the DNG with --hdr.
 
-    Observation:
-    This conversion already changes the original RAW data,
-    because we are creating a displayable RGB image.
+    Returns:
+        (width, height)
     """
-    import rawpy
-
     with rawpy.imread(str(dng_path)) as raw:
         rgb = raw.postprocess(
             use_camera_wb=True,
-            output_bps=8,
-            no_auto_bright=False,
+            half_size=False,
+            no_auto_bright=True,
+            output_bps=16,
         )
 
-    return Image.fromarray(rgb).convert("RGB")
+    h, w = rgb.shape[:2]
+    return w, h
 
 
-def apply_quality_changes(input_img: Image.Image) -> Image.Image:
-    """
-    Optional quality / size change applied only to the input image.
-
-    The target image will later be resized to match the input size,
-    independently of this setting.
-    """
-    if APPLY_QUALITY_CHANGES:
-        input_img = resize_long_edge(input_img, IMG_SIZE_LONG_EDGE)
-
-    return input_img
-
-
-def get_extension() -> str:
-    if SAVE_FORMAT.lower() == "jpg" or SAVE_FORMAT.lower() == "jpeg":
-        return "jpg"
-    elif SAVE_FORMAT.lower() == "png":
-        return "png"
+def get_output_name(item, idx, input_path, output_path):
+    if RENAME_WITH_INDEX:
+        stem = f"{idx:04d}"
     else:
-        raise ValueError(f"Unsupported SAVE_FORMAT: {SAVE_FORMAT}")
+        stem = item.get("basename", input_path.stem)
+
+    input_name = stem + input_path.suffix.lower()
+
+    # Keep TIFF output
+    output_suffix = output_path.suffix.lower()
+    if output_suffix not in [".tif", ".tiff"]:
+        output_suffix = ".tif"
+
+    output_name = stem + output_suffix
+
+    return input_name, output_name
 
 
-def save_image(img: Image.Image, path: Path):
-    if SAVE_FORMAT.lower() in ["jpg", "jpeg"]:
-        img.save(path, quality=JPEG_QUALITY)
-    elif SAVE_FORMAT.lower() == "png":
-        img.save(path)
-    else:
-        raise ValueError(f"Unsupported SAVE_FORMAT: {SAVE_FORMAT}")
+def prepare_output_tiff(tiff_path: Path, dst_output: Path, target_size):
+    """
+    Load target TIFF, convert to RGB, resize if needed, and save as TIFF.
+
+    target_size is (width, height), matching PIL convention.
+    """
+    with Image.open(tiff_path) as img:
+        img = img.convert("RGB")
+
+        if img.size != target_size:
+            print(f"  resizing output from {img.size} to {target_size}")
+            img = img.resize(target_size, Image.Resampling.LANCZOS)
+        else:
+            print(f"  output already has correct size: {target_size}")
+
+        img.save(dst_output)
 
 
-def save_pair(input_img: Image.Image, target_img: Image.Image, split: str, idx: int):
-    # Optional quality changes on the input
-    input_img = apply_quality_changes(input_img)
+def copy_pair(item, target_split: str, idx: int):
+    dng_path = Path(item["dng"])
+    tiff_path = Path(item["tiff16_c"])
 
-    # Always resize target to match input size.
-    # This avoids HDRNet error:
-    # assert input.shape == output.shape
-    target_img = target_img.resize(input_img.size, Image.Resampling.LANCZOS)
+    if not dng_path.exists():
+        raise FileNotFoundError(f"Missing DNG file: {dng_path}")
 
-    input_dir = OUT_ROOT / split / "input"
-    output_dir = OUT_ROOT / split / "output"
+    if not tiff_path.exists():
+        raise FileNotFoundError(f"Missing Expert C TIFF file: {tiff_path}")
+
+    input_dir = OUT_ROOT / target_split / "input"
+    output_dir = OUT_ROOT / target_split / "output"
 
     input_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    ext = get_extension()
-    name = f"{idx:04d}.{ext}"
+    input_name, output_name = get_output_name(item, idx, dng_path, tiff_path)
 
-    save_image(input_img, input_dir / name)
-    save_image(target_img, output_dir / name)
+    dst_input = input_dir / input_name
+    dst_output = output_dir / output_name
 
+    # Copy DNG unchanged
+    shutil.copy2(dng_path, dst_input)
 
-# ============================================================
-# Export logic
-# ============================================================
+    # Resize TIFF to the exact size produced by HDRNet's rawpy.postprocess
+    target_size = get_hdrnet_postprocessed_dng_size(dng_path)
 
-def limit_items(items, n_images):
-    """
-    If n_images is None, return all items.
-    Otherwise, return only the first n_images.
-    """
-    if n_images is None:
-        return items
+    prepare_output_tiff(
+        tiff_path=tiff_path,
+        dst_output=dst_output,
+        target_size=target_size,
+    )
 
-    return items[:n_images]
+    print(f"Saved {target_split} pair {idx:04d}: {item.get('basename', dng_path.stem)}")
+    print(f"  input : {dst_input}")
+    print(f"  output: {dst_output}")
+    print(f"  HDRNet input size: {target_size}")
 
 
 def export_items(items, target_split: str, n_images):
@@ -172,28 +157,14 @@ def export_items(items, target_split: str, n_images):
     print("=" * 80)
 
     for idx, item in enumerate(items):
-        dng_path = Path(item["dng"])
-        tiff_path = Path(item["tiff16_c"])
-
-        if not dng_path.exists():
-            raise FileNotFoundError(f"Missing DNG file: {dng_path}")
-
-        if not tiff_path.exists():
-            raise FileNotFoundError(f"Missing Expert C TIFF file: {tiff_path}")
-
-        input_img = convert_dng_to_rgb(dng_path)
-        target_img = Image.open(tiff_path).convert("RGB")
-
-        save_pair(input_img, target_img, target_split, idx)
-
-        print(f"Saved {target_split} pair {idx:04d}: {item['basename']}")
+        copy_pair(item, target_split, idx)
 
 
 def main():
     if not MANIFEST_PATH.exists():
         raise FileNotFoundError(f"Manifest not found: {MANIFEST_PATH}")
 
-    if OUT_ROOT.exists():
+    if OUT_ROOT.exists() and OVERWRITE_OUTPUT_FOLDER:
         print(f"Removing old folder: {OUT_ROOT}")
         shutil.rmtree(OUT_ROOT)
 

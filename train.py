@@ -13,6 +13,17 @@ from torchvision.utils import save_image
 from utils import psnr, print_params, load_train_ckpt, save_model_stats, plot_per_check, AvgMeter
 
 
+def print_image_tensor_stats(name, x):
+    x_float = x.float()
+
+    print(
+        f"{name}: "
+        f"shape={tuple(x.shape)}, "
+        f"dtype={x.dtype}, "
+        f"min={x_float.min().item():.6f}, "
+        f"max={x_float.max().item():.6f}, "
+        f"mean={x_float.mean().item():.6f}"
+    )
 
 def train(params, train_loader, valid_loader, model):
     # Optimization
@@ -46,9 +57,16 @@ def train(params, train_loader, valid_loader, model):
                 low = torch.div(low, 65535.0)
                 full = torch.div(full, 65535.0)
             else:
-                low = torch.div(low, 255.0)
-                full = torch.div(full, 255.0)
-            target = torch.div(target, 255.0)
+                # Expecting uint16 images, change to 255.0 if using uint8 images
+                low = torch.div(low, 65535.0)
+                full = torch.div(full, 65535.0)
+            target = torch.div(target, 65535.0) 
+
+            if epoch == 0:
+                print("\nNormalized tensor sanity check:")
+                print_image_tensor_stats("low normalized", low)
+                print_image_tensor_stats("full normalized", full)
+                print_image_tensor_stats("target normalized", target)
 
             output = model(low, full)
             loss = criterion(output, target)
@@ -94,12 +112,13 @@ def eval(params, valid_loader, model, device):
                 low = torch.div(low, 65535.0)
                 full = torch.div(full, 65535.0)
             else:
-                low = torch.div(low, 255.0)
-                full = torch.div(full, 255.0)
-            target = torch.div(target, 255.0)
-
+                # Expecting uint16 images, change to 255.0 if using uint8 images
+                low = torch.div(low, 65535.0)
+                full = torch.div(full, 65535.0)
+            target = torch.div(target, 65535.0)
+            
             output = model(low, full)
-            save_image(output, os.path.join(params['eval_out'], str(batch_idx)+'.png'))
+            save_image(output.clamp(0.0, 1.0), os.path.join(params['eval_out'], str(batch_idx)+'.png'))
             eval_psnr = psnr(output, target).item()
             psnr_meter.update(eval_psnr)
 
@@ -130,6 +149,9 @@ def parse_args():
     parser.add_argument('--input_res', default=256, type=int, help='Resolution of the down-sampled input')
     parser.add_argument('--output_res', default=(1024, 1024), type=int, nargs=2, help='Resolution of the guidemap/final output')
 
+    # Run name
+    parser.add_argument("--run_name", type=str, default=None)
+
     return parser.parse_args()
 
 
@@ -145,6 +167,13 @@ if __name__ == '__main__':
     # Parse training parameters
     params = vars(parse_args())
     print_params(params)
+
+    if params["run_name"] is not None:
+        run_name = params["run_name"]
+
+        params["ckpt_dir"] = f"./ckpts/ckpts_{run_name}"
+        params["stats_dir"] = f"./stats/stats_{run_name}"
+        params["eval_out"] = f"./outputs/outputs_{run_name}"
 
     # Folders
     os.makedirs(params['ckpt_dir'], exist_ok=True)

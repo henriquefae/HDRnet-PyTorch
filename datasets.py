@@ -28,7 +28,7 @@ class BaseDataset(Dataset):
         input = input.postprocess(use_camera_wb=True, half_size=False, no_auto_bright=True, output_bps=16)
         input = np.asarray(input, dtype=np.float32)
         # Output may not necessarily be .jpg images, so change when necessary.
-        output = io.imread(os.path.join(self.data_path, 'output', fname.split('.')[0] + '.jpg'))
+        output = io.imread(os.path.join(self.data_path, 'output', fname.split('.')[0] + '.tif'))
 
         input = torch.from_numpy(input.transpose((2, 0, 1)))
         output = torch.from_numpy(output.transpose((2, 0, 1)))
