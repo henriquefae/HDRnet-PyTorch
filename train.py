@@ -11,7 +11,109 @@ from torchvision.transforms.functional import vflip, hflip
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
 from utils import psnr, print_params, load_train_ckpt, save_model_stats, plot_per_check, AvgMeter
+import re
+import json
 
+
+def parse_epoch_iter_from_ckpt_name(ckpt_path):
+    """
+    Extract epoch and iteration from checkpoint filename.
+
+    Example:
+        epoch_15_iter_17000.pt
+        -> epoch = 15
+        -> iteration = 17000
+    """
+    fname = os.path.basename(ckpt_path)
+
+    match = re.search(r"epoch_(\d+)_iter_(\d+)\.pt", fname)
+
+    if match is None:
+        raise ValueError(
+            f"Could not parse epoch/iteration from checkpoint name: {fname}. "
+            "Expected format: epoch_X_iter_Y.pt"
+        )
+
+    epoch = int(match.group(1))
+    iteration = int(match.group(2))
+
+    return epoch, iteration
+
+
+def resolve_resume_ckpt_path(params):
+    """
+    Allows:
+        --resume_ckpt epoch_15_iter_17000.pt
+
+    or:
+        --resume_ckpt ./ckpts/ckpts_run/epoch_15_iter_17000.pt
+
+    If only a filename is given, it searches inside params['ckpt_dir'].
+    """
+    resume_ckpt = params["resume_ckpt"]
+
+    if resume_ckpt is None:
+        return None
+
+    if os.path.isabs(resume_ckpt) or os.path.dirname(resume_ckpt) != "":
+        ckpt_path = resume_ckpt
+    else:
+        ckpt_path = os.path.join(params["ckpt_dir"], resume_ckpt)
+
+    if not os.path.exists(ckpt_path):
+        raise FileNotFoundError(f"Resume checkpoint not found: {ckpt_path}")
+
+    return ckpt_path
+
+
+def load_resume_ckpt(model, ckpt_path, device):
+    """
+    Load model weights from a checkpoint.
+
+    This is written robustly because different repos save checkpoints differently:
+    - raw state_dict
+    - {'model': state_dict}
+    - {'model_state_dict': state_dict}
+    - {'state_dict': state_dict}
+    """
+    print(f"\nLoading resume checkpoint: {ckpt_path}")
+
+    ckpt = torch.load(ckpt_path, map_location=device)
+
+    if isinstance(ckpt, dict):
+        if "model_state_dict" in ckpt:
+            state_dict = ckpt["model_state_dict"]
+        elif "state_dict" in ckpt:
+            state_dict = ckpt["state_dict"]
+        elif "model" in ckpt:
+            state_dict = ckpt["model"]
+        else:
+            # Maybe the dict itself is already the state_dict
+            state_dict = ckpt
+    else:
+        raise ValueError("Unsupported checkpoint format.")
+
+    model.load_state_dict(state_dict)
+    print("Checkpoint weights loaded successfully.")
+
+
+def load_existing_stats(stats_dir):
+    """
+    Optional: continue stats.json if it already exists.
+    If not found, start new stats.
+    """
+    stats_path = os.path.join(stats_dir, "stats.json")
+
+    if os.path.exists(stats_path):
+        print(f"Loading existing stats from: {stats_path}")
+        with open(stats_path, "r") as f:
+            return json.load(f)
+
+    return {
+        "train_loss": [],
+        "train_psnr": [],
+        "valid_psnr": []
+    }
 
 def print_image_tensor_stats(name, x):
     x_float = x.float()
@@ -25,7 +127,7 @@ def print_image_tensor_stats(name, x):
         f"mean={x_float.mean().item():.6f}"
     )
 
-def train(params, train_loader, valid_loader, model):
+def train(params, train_loader, valid_loader, model, start_epoch=0, start_iteration=0):
     # Optimization
     optimizer = Adam(model.parameters(), params['learning_rate'], weight_decay=1e-8)
     # # Learning rate adjustment
@@ -38,12 +140,15 @@ def train(params, train_loader, valid_loader, model):
     # Training
     train_loss_meter = AvgMeter()
     train_psnr_meter = AvgMeter()
-    stats = {'train_loss': [],
-             'train_psnr': [],
-             'valid_psnr': []}
-    iteration = 0
+
+    stats = load_existing_stats(params["stats_dir"])
+
+    iteration = start_iteration
     old_time = time.time()
-    for epoch in range(params['epochs']):
+
+    print(f"\nStarting training from epoch={start_epoch}, iteration={iteration}")
+
+    for epoch in range(start_epoch, params['epochs']):
         for batch_idx, (low, full, target) in enumerate(train_loader):
             iteration += 1
             model.train()
@@ -152,6 +257,10 @@ def parse_args():
     # Run name
     parser.add_argument("--run_name", type=str, default=None)
 
+    # Resume checkpoint
+    parser.add_argument("--resume_ckpt", type=str, default=None,
+                    help="Checkpoint file to resume from, e.g. epoch_15_iter_17000.pt")
+
     return parser.parse_args()
 
 
@@ -190,11 +299,35 @@ if __name__ == '__main__':
 
     # Model for training
     model = HDRnetModel(params)
-    load_train_ckpt(model, params['ckpt_dir'])
+
     if params['cuda']:
         device = torch.device("cuda")
     else:
         device = torch.device("cpu")
+
     model.to(device)
 
-    train(params, train_loader, valid_loader, model)
+    start_epoch = 0
+    start_iteration = 0
+
+    if params["resume_ckpt"] is not None:
+        ckpt_path = resolve_resume_ckpt_path(params)
+
+        resume_epoch, resume_iteration = parse_epoch_iter_from_ckpt_name(ckpt_path)
+
+        load_resume_ckpt(model, ckpt_path, device)
+
+        start_epoch = resume_epoch
+        start_iteration = resume_iteration
+    else:
+        # Original behavior: automatically load latest checkpoint from ckpt_dir
+        load_train_ckpt(model, params['ckpt_dir'])
+
+    train(
+        params,
+        train_loader,
+        valid_loader,
+        model,
+        start_epoch=start_epoch,
+        start_iteration=start_iteration
+    )
