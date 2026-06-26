@@ -33,12 +33,12 @@ All pairs exist and have matching sizes.
 Example train+val experiment:
 
 ```powershell
-python train.py --epochs=1000 --train_data_dir=E:/henrique/data/hdrnet_fivek/train --eval_data_dir=E:/henrique/data/hdrnet_fivek/eval --output_res 1024 1024 --ckpt_interval 1000 --summary_interval 100 --run_name paperstyle_longrun --cuda
+python train.py --epochs=30 --train_data_dir=E:/henrique/data/hdrnet_fivek/train --eval_data_dir=E:/henrique/data/hdrnet_fivek/eval --output_res 1024 1024 --ckpt_interval 500 --summary_interval 50 --batch_size 8 --batch_norm --run_name paperstyle_longrun --cuda
 ```
 
 If starting from checkpoint:
 ```powershell
-python train.py --epochs=1000 --train_data_dir=E:/henrique/data/hdrnet_fivek/train --eval_data_dir=E:/henrique/data/hdrnet_fivek/eval --output_res 1024 1024 --ckpt_interval 1000 --summary_interval 100 --run_name paperstyle_longrun --resume_ckpt epoch_15_iter_17000.pt --cuda
+python train.py --epochs=30 --train_data_dir=E:/henrique/data/hdrnet_fivek/train --eval_data_dir=E:/henrique/data/hdrnet_fivek/eval --output_res 1024 1024 --ckpt_interval 500 --summary_interval 50 --batch_size 8 --batch_norm --run_name paperstyle_longrun --resume_ckpt epoch_15_iter_17000.pt --cuda
 ```
 
 

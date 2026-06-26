@@ -65,8 +65,8 @@ class Train_Dataset(BaseDataset):
             input, output = self.load_img(fname)
         # Check dimensions before crop
         assert input.shape == output.shape
-        assert self.output_res[0] <= input.shape[2]
-        assert self.output_res[1] <= input.shape[1]
+        assert self.output_res[0] <= input.shape[1]  # crop height <= image height
+        assert self.output_res[1] <= input.shape[2]  # crop width <= image width
         # Crop
         inout = torch.cat([input,output],dim=0)
         inout = self.augment(inout)
