@@ -19,8 +19,8 @@ class BaseDataset(Dataset):
     def load_img(self, fname):
         input = io.imread(os.path.join(self.data_path, 'input', fname))
         output = io.imread(os.path.join(self.data_path, 'output', fname))
-        input = torch.from_numpy(input.transpose((2, 0, 1)))
-        output = torch.from_numpy(output.transpose((2, 0, 1)))
+        input = torch.from_numpy(input.transpose((2, 0, 1))).float()
+        output = torch.from_numpy(output.transpose((2, 0, 1))).float()
         return input, output
 
     def load_img_hdr(self, fname):
@@ -52,8 +52,14 @@ class Train_Dataset(BaseDataset):
         self.output_res = params['output_res']
         self.augment = transforms.Compose([
             transforms.RandomCrop(self.output_res),
-            # transforms.RandomHorizontalFlip(p=0.5),
-            # transforms.RandomVerticalFlip(p=0.5),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomVerticalFlip(p=0.5),
+            transforms.RandomChoice([
+                transforms.Lambda(lambda x: x),
+                transforms.Lambda(lambda x: torch.rot90(x, 1, dims=[1, 2])),
+                transforms.Lambda(lambda x: torch.rot90(x, 2, dims=[1, 2])),
+                transforms.Lambda(lambda x: torch.rot90(x, 3, dims=[1, 2])),
+            ]),
         ])
         self.params = params
 
