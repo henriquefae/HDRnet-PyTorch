@@ -1,0 +1,188 @@
+FULL PIPELINE - Deep Bilateral Learning / HDRNet
+
+Input:
+I: H x W x 3
+Original high-resolution RGB image.
+
+The pipeline splits into two branches:
+
+==================================================
+1. LOW-RESOLUTION BRANCH
+==================================================
+
+High-resolution input:
+I: H x W x 3
+
+Downsample:
+I: H x W x 3
+-> I_tilde: 256 x 256 x 3
+
+Low-level strided convolutions:
+256 x 256 x 3
+-> 128 x 128 x 8
+-> 64 x 64 x 16
+-> 32 x 32 x 32
+-> 16 x 16 x 64
+
+This gives the shared low-level feature map:
+S: 16 x 16 x 64
+
+--------------------------------------------------
+Local path:
+--------------------------------------------------
+
+16 x 16 x 64
+-> 16 x 16 x 64
+-> 16 x 16 x 64
+
+Output:
+L: 16 x 16 x 64
+
+The local path keeps spatial/local information.
+
+--------------------------------------------------
+Global path:
+--------------------------------------------------
+
+16 x 16 x 64
+-> 8 x 8 x 64
+-> 4 x 4 x 64
+-> flatten: 1024
+-> 256
+-> 128
+-> 64
+
+Output:
+G: 64
+
+The global path gives whole-image context.
+
+--------------------------------------------------
+Fusion:
+--------------------------------------------------
+
+L: 16 x 16 x 64
+G: 64
+
+Fusion:
+L + G
+-> F: 16 x 16 x 64
+
+The global vector G is combined with the local features at each spatial position.
+
+--------------------------------------------------
+Final prediction:
+--------------------------------------------------
+
+F: 16 x 16 x 64
+-> A_raw: 16 x 16 x 96
+
+Why 96?
+Each affine RGB transform has 3 x 4 = 12 coefficients.
+The bilateral grid depth is d = 8.
+So: 8 x 12 = 96.
+
+Reshape:
+A_raw: 16 x 16 x 96
+-> A: 16 x 16 x 8 x 12
+
+A is the low-resolution bilateral grid of affine transformations.
+
+Meaning:
+16 = coarse horizontal position
+16 = coarse vertical position
+8 = guidance/tone depth
+12 = coefficients of a 3 x 4 affine RGB transform
+
+==================================================
+2. HIGH-RESOLUTION BRANCH
+==================================================
+
+Original high-resolution input:
+I: H x W x 3
+
+Compute learned guidance map:
+I: H x W x 3
+-> g: H x W x 1
+
+Each high-resolution pixel gets a guidance value g(x,y).
+
+==================================================
+3. SLICING
+==================================================
+
+Inputs:
+A: 16 x 16 x 8 x 12
+g: H x W x 1
+
+For each high-resolution pixel, use:
+(x, y, g(x,y))
+
+to look up/interpolate the corresponding affine transform in the bilateral grid.
+
+Slicing:
+A: 16 x 16 x 8 x 12
++
+g: H x W x 1
+-> A_bar: H x W x 12
+
+A_bar gives one affine transform per high-resolution pixel.
+
+==================================================
+4. APPLY LOCAL AFFINE TRANSFORMS
+==================================================
+
+Inputs:
+A_bar: H x W x 12
+I: H x W x 3
+
+For each pixel, reshape the 12 coefficients into a 3 x 4 matrix:
+
+M(x,y) =
+[ a11 a12 a13 b1
+  a21 a22 a23 b2
+  a31 a32 a33 b3 ]
+
+Apply to the original RGB pixel:
+
+[ R' ]   [ a11 a12 a13 b1 ] [ R ]
+[ G' ] = [ a21 a22 a23 b2 ] [ G ]
+[ B' ]   [ a31 a32 a33 b3 ] [ B ]
+                            [ 1 ]
+
+Final output:
+O: H x W x 3
+
+==================================================
+SUMMARY
+==================================================
+
+I: H x W x 3
+-> downsample to 256 x 256 x 3
+-> CNN low-res branch
+-> A_raw: 16 x 16 x 96
+-> reshape to A: 16 x 16 x 8 x 12
+
+In parallel:
+
+I: H x W x 3
+-> guidance map g: H x W x 1
+
+Then:
+
+A: 16 x 16 x 8 x 12
++
+g: H x W x 1
+-> slicing
+-> A_bar: H x W x 12
+
+Finally:
+
+A_bar: H x W x 12
++
+I: H x W x 3
+-> apply local affine transforms
+-> O: H x W x 3
+
+Main idea:
+The network predicts editing rules at low resolution, then applies these rules to the original high-resolution image.

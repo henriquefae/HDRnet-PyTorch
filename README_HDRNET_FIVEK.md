@@ -33,7 +33,7 @@ All pairs exist and have matching sizes.
 Example train+val experiment:
 
 ```powershell
-python train.py --epochs=30 --train_data_dir=E:/henrique/data/hdrnet_fivek/train --eval_data_dir=E:/henrique/data/hdrnet_fivek/eval --output_res 1024 1024 --ckpt_interval 500 --summary_interval 50 --batch_size 8 --batch_norm --run_name paperstyle_longrun --cuda
+python train.py --epochs=1 --batch_size=4 --train_data_dir=E:/henrique/data/hdrnet_fivek/train --eval_data_dir=E:/henrique/data/hdrnet_fivek/eval --output_res 256 256 --ckpt_interval 500 --summary_interval 50 --batch_norm --loss mse --run_name teste_MSE --cuda
 ```
 
 If starting from checkpoint:
@@ -47,5 +47,5 @@ python train.py --epochs=30 --train_data_dir=E:/henrique/data/hdrnet_fivek/train
 Use your latest checkpoint, for example:
 
 ```powershell
-python test.py --ckpt_path=ckpts/ckpts_experiment2/epoch_99_iter_2500.pt --test_img_path=E:/henrique/data/hdrnet_fivek/test/input/0000.tif --cuda
+python test.py --ckpt_path=ckpts/ckpts_paperstyle_longrun/epoch_29_iter_16500.pt --test_img_path=E:/henrique/data/hdrnet_fivek/test/input/0000.tif --cuda
 ```
